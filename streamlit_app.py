@@ -1,70 +1,66 @@
 import streamlit as st
-import os
 import cv2
 import numpy as np
-import sqlite3
-from PIL import Image
+import time
 from collections import defaultdict
 from ultralytics import YOLO
 from namirnice_baze import UserDB, ListDB, FoodDB
-import time
 
-# Inicijalizacija
+# Inicijalizacija baza i modela
 user_db = UserDB()
 list_db = ListDB()
 food_db = FoodDB()
 
-# YOLO model
 model = YOLO("C:/Users/anita/Desktop/Faks_NOVO/2. GODINA/IV. semestar/Primjenjeno strojno učenje/Projekt/namirnice_dataset/runs/detect/namirnice_train5/weights/best.pt")
 
-# Pragovi po klasama
 thresholds = {
     'kikiriki': 0.55, 'jaja': 0.45, 'riza': 0.35,
     'rajcica': 0.40, 'banane': 0.40, 'kruh': 0.35,
     'krastavci': 0.30, 'pivo': 0.15
 }
 
+# Streamlit UI
 st.title("📷 Detekcija namirnica kamerom mobilnog uređaja")
-st.markdown("Poveži IP Webcam i unesi URL za stream. Format: `http://<IP>:8080/video`")
+st.markdown("Format URL-a: `http://<IP>:8080/video`")
 
-# --- Korisnik ---
 username = st.text_input("Korisničko ime:")
-if username and st.button("Prijavi se"):
-    user_id = user_db.create_user(username)
-    st.session_state.user_id = user_id
-    st.success(f"Korisnik '{username}' prijavljen!")
+camera_url = st.text_input("URL kamere")
 
-# --- Kamera URL ---
-camera_url = st.text_input("URL kamere (npr. http://192.168.1.10:8080/video)")
-
-# --- Pokretanje detekcije ---
-start = st.button("🎬 Pokreni detekciju")
-
-# --- Pohranjene detekcije ---
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
 if 'detected_items' not in st.session_state:
     st.session_state.detected_items = defaultdict(lambda: {"count": 0, "confidence": 0})
-
 if 'detecting' not in st.session_state:
     st.session_state.detecting = False
 
-# --- Pokretanje detekcije ---
-if start and camera_url and username:
-    st.session_state.detecting = True
-    st.success("Detekcija pokrenuta.")
+if st.button("Prijavi se"):
+    if username:
+        user_id = user_db.create_user(username)
+        st.session_state.user_id = user_id
+        st.success(f"Korisnik '{username}' prijavljen. ID: {user_id}")
+    else:
+        st.error("Unesi korisničko ime.")
 
-# --- Detekcija ---
-if st.session_state.detecting and camera_url and username:
+if st.button("🎬 Pokreni detekciju"):
+    if not username or not camera_url:
+        st.error("Unesi korisničko ime i URL kamere.")
+    else:
+        st.session_state.detecting = True
+
+if st.session_state.detecting:
     stframe = st.empty()
     cap = cv2.VideoCapture(camera_url)
 
     if not cap.isOpened():
-        st.error("Ne mogu otvoriti video stream. Provjeri IP i je li IP Webcam pokrenut.")
+        st.error("Ne mogu otvoriti video stream.")
+        st.session_state.detecting = False
         st.stop()
 
-    stop_button = st.button("⏹ Zaustavi")
-    while cap.isOpened() and not stop_button:
+    stop = st.button("⏹ Zaustavi detekciju")
+
+    while cap.isOpened() and not stop:
         ret, frame = cap.read()
-        if not ret or frame is None:
+        if not ret:
             st.warning("Nema frame-a iz kamere.")
             break
 
@@ -82,9 +78,8 @@ if st.session_state.detecting and camera_url and username:
                 st.session_state.detected_items[item]["confidence"], conf
             )
 
-        annotated_frame = results.plot()
-        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-        stframe.image(annotated_frame, channels="RGB", use_container_width=True)
+        annotated = results.plot()
+        stframe.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), channels="RGB")
 
         time.sleep(0.1)
 
@@ -92,17 +87,16 @@ if st.session_state.detecting and camera_url and username:
     st.session_state.detecting = False
 
     # --- Spremanje ---
-    user_id = st.session_state.get("user_id")
-    if user_id:
-        items_to_save = {}
+    if st.session_state.user_id:
+        to_save = {}
         for item, data in st.session_state.detected_items.items():
             for i in range(data["count"]):
-                items_to_save[f"{item}#{i+1}"] = data["confidence"]
-        list_db.save_list(user_id, items_to_save)
-        st.success("Popis uspješno spremljen!")
+                to_save[f"{item}#{i+1}"] = data["confidence"]
+        list_db.save_list(st.session_state.user_id, to_save)
+        st.success("Popis detektiranih namirnica uspješno spremljen!")
         st.session_state.detected_items = defaultdict(lambda: {"count": 0, "confidence": 0})
     else:
-        st.error("Korisnik nije pronađen.")
+        st.error("Nema korisničkog ID-a.")
 
 # --- Prikaz detekcija ---
 if st.session_state.detected_items:
