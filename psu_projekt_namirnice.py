@@ -1,90 +1,101 @@
-import time
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer
+import av
+import cv2
+import numpy as np
 import sqlite3
 from ultralytics import YOLO
-import cv2
 import pandas as pd
+import threading
 
-# === 1. Učitaj trenirani model ===
-model = YOLO("C:/Users/anita/Desktop/Faks_NOVO/2. GODINA/IV. semestar/Primjenjeno strojno učenje/Projekt/namirnice_dataset/runs/detect/namirnice_train4/weights/best.pt")
+# === Učitaj YOLO model ===
+model = YOLO("C:/Users/Viktorija/Desktop/Detektor-namirnica-main/Detektor-namirnica-main/namirnice_dataset/runs/detect/namirnice_train5/weights/best.pt")
 
-# === 2. Class-Specific Confidence Thresholds ===
+# === Class thresholds ===
 CLASS_THRESHOLDS = {
-    'kikiriki': 0.55,   # Visok threshold za overrepresented klasu
+    'kikiriki': 0.55,
     'jaja': 0.45,
     'riza': 0.35,
     'rajcica': 0.40,
     'banane': 0.40,
     'kruh': 0.35,
     'krastavci': 0.30,
-    'pivo': 0.15        # Nizak threshold za underrepresented klasu
+    'pivo': 0.15
 }
 
-# === 3. Učitaj novi CSV s relevantnim namirnicama ===
-df = pd.read_csv("C:/Users/anita/Desktop/Faks_NOVO/2. GODINA/IV. semestar/Primjenjeno strojno učenje/Projekt/namirnice.csv")
+# === Učitaj proizvode iz CSV ===
+df = pd.read_csv("C:/Users/Viktorija/Desktop/Detektor-namirnica-main/Detektor-namirnica-main/namirnice.csv")
 csv_proizvodi = set(df["naziv"].str.lower())
 
-# === 4. Pokreni kameru ===
-cap = cv2.VideoCapture(1)  # Eksplicitno postavi željeni indeks
-if not cap.isOpened():
-    print("❌ Nema dostupne kamere!")
-    exit()
+# === Baza i lock za thread-sigurnost ===
+conn = sqlite3.connect("shopping_list.db", check_same_thread=False)
+cur = conn.cursor()
+cur.execute('''
+    CREATE TABLE IF NOT EXISTS popis (
+        id INTEGER PRIMARY KEY,
+        korisnik TEXT,
+        proizvod TEXT,
+        confidence REAL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+conn.commit()
+lock = threading.Lock()
+
+# === Streamlit UI ===
+st.title("YOLO Detekcija namirnica s IP kamerom")
+
+korisnik = st.text_input("Unesi svoje korisničko ime:")
+ip_link = st.text_input("Unesi URL IP kamere (npr. http://192.168.1.123:8080/video):")
 
 detected_items = {}
-print("📷 Pokrećem kameru... Pritisni Q za izlaz.")
 
-# === 5. Glavna petlja detekcije ===
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+def detect_from_ip_camera(url):
+    cap = cap = cv2.VideoCapture("http://192.168.211.180:8080/video")
 
-    # Prošireni parametri za detekciju
-    results = model.predict(
-        source=frame,
-        imgsz=640,
-        conf=0.25,  # Globalni minimum
-        verbose=False
-    )[0]
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            st.warning("Ne mogu dohvatiti sliku s kamere.")
+            break
 
-    for box in results.boxes:
-        conf = box.conf.item()
-        class_id = int(box.cls)
-        class_name = model.names[class_id].lower()
-        
-        # Primijeni class-specific threshold
-        threshold = CLASS_THRESHOLDS.get(class_name, 0.25)
-        if conf > threshold and class_name in csv_proizvodi:
-            detected_items[class_name] = max(detected_items.get(class_name, 0), conf)
-            
-            # Debug ispis
-            print(f"✅ {class_name.capitalize()}: {conf:.2f} (threshold: {threshold})")
+        results = model.predict(frame, imgsz=640, conf=0.25, verbose=False)[0]
 
-    # Anotiraj frame s proširenim informacijama
-    annotated_frame = results.plot()
-    cv2.imshow("Detekcija namirnica (Q za izlaz)", annotated_frame)
+        for box in results.boxes:
+            conf = box.conf.item()
+            class_id = int(box.cls)
+            class_name = model.names[class_id].lower()
+            threshold = CLASS_THRESHOLDS.get(class_name, 0.25)
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+            if conf > threshold and class_name in csv_proizvodi:
+                detected_items[class_name] = max(detected_items.get(class_name, 0), conf)
 
-# === 6. Pohrana rezultata s vremenskom oznakom ===
-conn = sqlite3.connect("shopping_list.db")
-cur = conn.cursor()
-cur.execute('''CREATE TABLE IF NOT EXISTS popis 
-             (id INTEGER PRIMARY KEY, 
-              proizvod TEXT, 
-              confidence REAL,
-              timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            xyxy = box.xyxy[0].cpu().numpy().astype(int)
+            cv2.rectangle(frame, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (0,255,0), 2)
+            cv2.putText(frame, f"{class_name} {conf:.2f}", (xyxy[0], xyxy[1]-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
 
-for proizvod, conf in detected_items.items():
-    cur.execute("INSERT INTO popis (proizvod, confidence) VALUES (?, ?)",
-               (proizvod, round(conf, 2)))
+        st.image(frame, channels="BGR")
 
-conn.commit()
-conn.close()
+        if st.button("Zaustavi"):
+            break
 
-# === 7. Detaljni ispis rezultata ===
-print("\n📋 Detektirani proizvodi (najveće povjerenje):")
-for p, c in detected_items.items():
-    print(f"- {p.capitalize()}: {c:.2f}")
+    cap.release()
 
-print("\n✅ Podaci spremljeni u bazu s vremenskim oznakama.")
+if st.button("Pokreni IP kameru i detekciju") and korisnik.strip() and ip_link.strip():
+    detect_from_ip_camera(ip_link)
+
+    if st.button("Spremi popis"):
+        with lock:
+            for proizvod, conf in detected_items.items():
+                cur.execute("INSERT INTO popis (korisnik, proizvod, confidence) VALUES (?, ?, ?)",
+                            (korisnik, proizvod, round(conf,2)))
+            conn.commit()
+            st.success("Popis spremljen u bazu!")
+
+    if detected_items:
+        st.subheader("Trenutno detektirani proizvodi:")
+        for p, c in detected_items.items():
+            st.write(f"- {p.capitalize()}: {c:.2f}")
+else:
+    st.info("Unesi korisničko ime i URL kamere.")
