@@ -25,11 +25,11 @@ class UserDB:
             cur = conn.execute("SELECT user_id FROM users WHERE username = ?", (username,))
             row = cur.fetchone()
             if row:
-                return row[0]  # korisnik već postoji, vrati user_id
+                return row[0]  # korisnik već postoji
             else:
                 cur = conn.execute("INSERT INTO users (username) VALUES (?)", (username,))
-                return cur.lastrowid  # vrati novi user_id
-
+                conn.commit()
+                return cur.lastrowid  # novi korisnik
 
 class FoodDB:
     def __init__(self):
@@ -54,20 +54,21 @@ class ListDB:
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-    
+
     def save_list(self, user_id, items):
         with get_db("lists.db") as conn:
             for food, conf in items.items():
                 food_id = self._get_food_id(food)
-                conn.execute('''
-                    INSERT INTO shopping_lists (user_id, food_id, confidence)
-                    VALUES (?, ?, ?)
-                ''', (user_id, food_id, conf))
-    
+                if food_id is not None:
+                    conn.execute('''
+                        INSERT INTO shopping_lists (user_id, food_id, confidence)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, food_id, conf))
+            conn.commit()
+
     def _get_food_id(self, food_name):
-        base_name = food_name.split('#')[0]  # npr. "pivo#2" postaje "pivo"
+        base_name = food_name.split('#')[0]
         with get_db("foods.db") as conn:
             cur = conn.execute("SELECT food_id FROM foods WHERE naziv = ?", (base_name,))
             row = cur.fetchone()
             return row[0] if row else None
-
