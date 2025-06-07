@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 8
+names: ['banane', 'jaja', 'kikiriki', 'krastavci', 'kruh', 'pivo', 'rajcica', 'riza']
+
+roboflow:
+  workspace: detekcija-namirnica
+  project: my-first-project-uqsz5
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/detekcija-namirnica/my-first-project-uqsz5/dataset/1
