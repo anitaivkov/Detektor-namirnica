@@ -13,7 +13,7 @@ def init_session_state():
 
 def show_detected_items():
     if st.session_state.detected_items:
-        st.subheader("🛒 Detektirane namirnice:")
+        st.markdown("#### 🧾 Detektirane namirnice:")
         for item, data in st.session_state.detected_items.items():
             st.write(f"- {item} x{data['count']} (najveća točnost: {data['confidence']:.2f})")
 
@@ -35,7 +35,7 @@ def render_login(user_db):
 
 
 def render_camera_url():
-    return st.text_input("URL kamere")
+    return st.text_input("URL kamere \n(npr. http://192.168.1.133:8080/video)")
 
 def show_threshold_sliders(food_list):
     st.subheader("🎚️ Pragovi detekcije po namirnicama")
