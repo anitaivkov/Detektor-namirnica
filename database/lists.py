@@ -1,5 +1,7 @@
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
+from database.food import FoodDB
 
 @contextmanager
 def get_db():
@@ -10,7 +12,8 @@ def get_db():
         conn.close()
 
 class ListDB:
-    def __init__(self):
+    def __init__(self, food_db_instance):
+        self.food_db = food_db_instance
         self._initialize_db()
 
     def _initialize_db(self):
@@ -27,48 +30,68 @@ class ListDB:
                 )
             ''')
 
-    def _get_food_id(self, food_name):
-        from database.food import FoodDB
-        food_db = FoodDB()
-        return food_db.get_or_create_food_id(food_name)
+    # Promijenjeno da prima conn objekt
+    def _get_food_id(self, food_name, conn):
+        # Sada prosljeđuje conn objekt metodi FoodDB-a
+        return self.food_db.get_or_create_food_id(food_name, conn)
 
     def save_list(self, user_id, items):
-        with get_db() as conn:
-            for food, data in items.items():
-                food_id = self._get_food_id(food)
+        now = datetime.now()
+
+        with get_db() as conn: # Jedna veza za cijelu save_list operaciju
+            for food_name, data in items.items():
+                # Sada prosljeđuje istu 'conn' vezu
+                food_id = self._get_food_id(food_name, conn)
                 if food_id is None:
+                    print(f"Upozorenje: Nije pronađen food_id za '{food_name}'. Stavka neće biti spremljena.")
                     continue
 
-                # Provjera postoji li već red za (user_id, food_id)
-                cur = conn.execute('''
-                    SELECT count, confidence FROM shopping_lists
-                    WHERE user_id = ? AND food_id = ?
-                ''', (user_id, food_id))
-                row = cur.fetchone()
+                conn.execute(
+                    "INSERT INTO shopping_lists (user_id, food_id, naziv, count, confidence, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, food_id, food_name, data["count"], data["confidence"], now.isoformat())
+                )
+            conn.commit() # Commit na kraju transakcije
 
-                if row:
-                    new_count = row[0] + data["count"]
-                    new_conf = max(row[1], data["confidence"])
-                    conn.execute('''
-                        UPDATE shopping_lists
-                        SET count = ?, confidence = ?, timestamp = CURRENT_TIMESTAMP
-                        WHERE user_id = ? AND food_id = ?
-                    ''', (new_count, new_conf, user_id, food_id))
-                else:
-                    conn.execute('''
-                        INSERT INTO shopping_lists (user_id, food_id, naziv, count, confidence)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (user_id, food_id, food, data["count"], data["confidence"]))
-
-            conn.commit()
-
-    def get_lists(self, user_id):
+    def get_all_lists(self, user_id):
         with get_db() as conn:
             cur = conn.execute('''
-                SELECT l.count, l.confidence, l.timestamp, f.naziv
+                SELECT l.timestamp, f.naziv, l.count, l.confidence
                 FROM shopping_lists l
                 JOIN foods f ON l.food_id = f.food_id
                 WHERE l.user_id = ?
                 ORDER BY l.timestamp DESC
             ''', (user_id,))
+            return cur.fetchall()
+
+    def get_list_items(self, user_id, naziv):
+        with get_db() as conn:
+            cur = conn.execute('''
+                SELECT f.naziv, l.count, l.confidence, l.timestamp
+                FROM shopping_lists l
+                JOIN foods f ON l.food_id = f.food_id
+                WHERE l.user_id = ? AND f.naziv = ?
+                ORDER BY l.timestamp DESC
+            ''', (user_id, naziv))
+            return cur.fetchall()
+
+    def get_unique_timestamps(self, user_id):
+        with get_db() as conn:
+            cur = conn.execute('''
+                SELECT DISTINCT timestamp
+                FROM shopping_lists
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+            ''', (user_id,))
+            rows = cur.fetchall()
+            return [datetime.fromisoformat(row[0]) for row in rows]
+
+    def get_list_items_by_timestamp(self, user_id, timestamp):
+        with get_db() as conn:
+            cur = conn.execute('''
+                SELECT f.naziv, l.count, l.confidence
+                FROM shopping_lists l
+                JOIN foods f ON l.food_id = f.food_id
+                WHERE l.user_id = ? AND l.timestamp = ?
+                ORDER BY f.naziv
+            ''', (user_id, timestamp.isoformat()))
             return cur.fetchall()
