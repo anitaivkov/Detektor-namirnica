@@ -31,7 +31,7 @@ def download_model_if_needed(url: str, filepath: str):
                     if chunk:
                         f.write(chunk)
                         downloaded_size += len(chunk)
-                        st.progress(downloaded_size / total_size_in_bytes) ako želite vidjeti napredak
+                        st.progress(downloaded_size / total_size_in_bytes) 
 
             if total_size_in_bytes > 0 and downloaded_size != total_size_in_bytes:
                 st.warning(f"Upozorenje: Preuzimanje je nepotpuno. Preuzeto {downloaded_size / (1024*1024):.2f} MB od {total_size_in_bytes / (1024*1024):.2f} MB.")
