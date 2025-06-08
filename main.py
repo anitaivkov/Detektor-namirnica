@@ -122,5 +122,5 @@ with st.expander("⚙️ Izmijeni pragove detekcije"):
         st.session_state.thresholds = {food: 0.25 for food in foods}
     for food in foods:
         st.session_state.thresholds[food] = st.slider()
-            f"Prag za: {food}", 0.0, 1.0,
-            value=st.session_state.thresholds.get(food, 0.25), step=0.01
+        f"Prag za: {food}", 0.0, 1.0,
+        value=st.session_state.thresholds.get(food, 0.25), step=0.01
