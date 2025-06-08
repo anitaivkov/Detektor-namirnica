@@ -118,9 +118,19 @@ with row3_right:
 st.divider()
 with st.expander("⚙️ Izmijeni pragove detekcije"):
     foods = food_db.get_all_foods()
+    
+    # Inicijaliziraj pragove ako ne postoje
     if "thresholds" not in st.session_state:
+        # Postavi početne pragove na 0.25 za sve namirnice
         st.session_state.thresholds = {food: 0.25 for food in foods}
+    
+    # Stvori slider za svaku namirnicu
     for food in foods:
-        st.session_state.thresholds[food] = st.slider()
-        f"Prag za: {food}", 0.0, 1.0,
-        value=st.session_state.thresholds.get(food, 0.25), step=0.01
+        st.session_state.thresholds[food] = st.slider(
+            f"Prag za: {food}",
+            min_value=0.0, 
+            max_value=1.0,
+            value=st.session_state.thresholds.get(food, 0.25), # Dohvati postojeću vrijednost ili zadanu
+            step=0.01,
+            key=f"slider_{food}" # Dodaj jedinstveni ključ za svaki slider
+        )
