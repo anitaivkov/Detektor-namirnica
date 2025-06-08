@@ -1,5 +1,6 @@
 import os
 import requests
+import streamlit as st
 from ultralytics import YOLO
 
 # === CONFIG ===
